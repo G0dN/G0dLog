@@ -1,0 +1,12 @@
+services:
+  yinye:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${BLOG_PORT:-3000}:3000"
+    environment:
+      BLOG_DATA_DIR: /var/lib/yinye/data
+      BLOG_MEDIA_DIR: /var/lib/yinye/media
+    volumes:
+      - ${BLOG_DATA_DIR:-./data}:/var/lib/yinye/data
+      - ${BLOG_MEDIA_DIR:-./media}:/var/lib/yinye/media
