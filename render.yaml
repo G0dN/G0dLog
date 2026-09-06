@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: g0dlog-mvp
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    autoDeployTrigger: commit
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    domains:
+      - g0dlog.top
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUBLIC_SITE_URL
+        value: https://g0dlog.top
+      # Render Free has no persistent disk. These paths are deliberately ephemeral.
+      - key: BLOG_DATA_DIR
+        value: /tmp/g0dlog/data
+      - key: BLOG_MEDIA_DIR
+        value: /tmp/g0dlog/media
+      - key: BLOG_BACKUP_DIR
+        value: /tmp/g0dlog/backups

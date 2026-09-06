@@ -19,6 +19,8 @@ This is a handoff map for future agents. The confirmed product baseline is `dema
 - `lib/`: public loaders, canonical paths, PBKDF2 sessions, server permissions, security, audit, slugs, and local media storage.
 - `scripts/`: Owner bootstrap/reset, backup, export/import, restore verification, audit pruning, and locked NAS deployment.
 - `docs/`: Chinese ZSpace Z4S deployment and restore instructions.
+- `render.yaml`: Render Free Docker Web Service definition for the disposable MVP; it uses `/tmp` paths and `g0dlog.top` only during the MVP window.
+- `docs/deploy-render.zh-CN.md`: Render setup, DNS ownership during MVP, and the later Cloudflare Tunnel cutover to NAS.
 - `tests/rendered-html.test.mjs`: production server, public output, permission, stable URL, and media smoke tests.
 
 ## Permission model
@@ -59,3 +61,4 @@ The test suite creates a temporary SQLite database, boots the production Next se
 - Audit rows are intended to be pruned after 90 days with `scripts/prune-audit.mjs`.
 - Release tags run `.github/workflows/release.yml`; the workflow pushes a tagged/latest image to GHCR and requires configured Render/NAS webhook secrets for automatic release deployment. `scripts/release-webhook.mjs` verifies HMAC signatures, requires the image tag to match the release version, waits for the deployment process, and returns failure when the health gate or rollback fails. `scripts/deploy-nas.sh` resolves its repository directory, requires explicit production paths and a `flock` utility, then uses a lock, backup, image pull, health gate, automatic image rollback, and optional SMTP alerting.
 - The final local production audit reports no known moderate-or-higher vulnerabilities. Docker/NAS hardware, public GHCR visibility, Cloudflare Tunnel, SMTP, domain, and legal/registration checks remain deployment-time checks when the target services are available.
+- Render MVP is intentionally non-persistent: `render.yaml` points data, media, and backups at `/tmp`, and `PUBLIC_SITE_URL` is `https://g0dlog.top` while that domain is attached to Render. The same domain must not point to Render and the NAS Tunnel simultaneously; cut over DNS only after NAS acceptance. Formal SQLite/media/backup storage remains NAS-only.

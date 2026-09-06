@@ -56,6 +56,10 @@ The first version intentionally does not include comments, likes, follows, publi
 
 ## Data and deployment
 
+### Render MVP
+
+The repository includes [`render.yaml`](render.yaml) for a disposable free Docker Web Service. It runs the same full Next.js application so the public pages can be tested before the NAS is exposed. Render Free instances sleep after 15 minutes without inbound traffic and have an ephemeral filesystem; local SQLite, uploaded media, and other files are lost on sleep, restart, or redeploy. Do not enter canonical content, credentials, or unique media there. Set `g0dlog.top` as the Render custom domain during the MVP window, then move that hostname to the NAS Cloudflare Tunnel only after the formal NAS checks pass. See [`docs/deploy-render.zh-CN.md`](docs/deploy-render.zh-CN.md).
+
 Copy `.env.example` to `.env` for a Compose deployment. At minimum, provide the public HTTPS URL and persistent host directories:
 
 ```text
