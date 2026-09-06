@@ -2,6 +2,8 @@ import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { columnMembers, columns, users } from "../../../../../db/schema";
 import { requireColumnManager } from "../../../../../lib/server-auth";
+import { enforceSameOrigin } from "../../../../../lib/security";
+import { recordAudit } from "../../../../../lib/audit";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -16,6 +18,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const originError = enforceSameOrigin(request);
+  if (originError) return originError;
   const { id } = await context.params;
   const manager = await requireColumnManager(id);
   if (!manager) return Response.json({ error: "没有专栏管理权限" }, { status: 403 });
@@ -35,10 +39,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   } else {
     await db.insert(columnMembers).values({ columnId: id, userId: target.id, invitedBy: manager.id, status: "active", joinedAt: now });
   }
+  await recordAudit(manager.id, "invite_member", "column", id, { userId: target.id });
   return Response.json({ ok: true, userId: target.id }, { status: 201 });
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const originError = enforceSameOrigin(request);
+  if (originError) return originError;
   const { id } = await context.params;
   const manager = await requireColumnManager(id);
   if (!manager) return Response.json({ error: "没有专栏管理权限" }, { status: 403 });
@@ -47,5 +54,6 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   const now = new Date().toISOString();
   const [member] = await getDb().update(columnMembers).set({ status: "removed", removedAt: now, removedBy: manager.id }).where(and(eq(columnMembers.columnId, id), eq(columnMembers.userId, payload.userId), eq(columnMembers.status, "active"))).returning({ userId: columnMembers.userId });
   if (!member) return Response.json({ error: "协作者不存在" }, { status: 404 });
+  await recordAudit(manager.id, "remove_member", "column", id, { userId: member.userId });
   return Response.json({ ok: true, userId: member.userId });
 }

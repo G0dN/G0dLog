@@ -1,0 +1,13 @@
+node_modules
+.next
+.pnpm-store
+.git
+.test-data-*
+.test-media-*
+.acceptance-data
+.acceptance-media
+data
+media
+backups
+*.sqlite
+*.tgz

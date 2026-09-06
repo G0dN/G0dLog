@@ -1,7 +1,10 @@
-import { and, count, desc, eq, isNull, or } from "drizzle-orm";
+import { and, count, desc, eq, isNull, like, or } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { articles, columnMembers, columns, users } from "../../../db/schema";
 import { requireUser } from "../../../lib/server-auth";
+import { enforceSameOrigin } from "../../../lib/security";
+import { recordAudit } from "../../../lib/audit";
+import { slugWithId } from "../../../lib/slug";
 
 function serializeColumn(row: { id: string; slug: string; title: string; description: string; creatorId: string; creatorName: string; createdAt: string; updatedAt: string; latestPublishedAt: string | null; deletedAt: string | null; articleCount: number }) {
   return { ...row, articleCount: Number(row.articleCount) };
@@ -11,6 +14,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const managed = url.searchParams.get("scope") === "managed";
   const includeDeleted = url.searchParams.get("includeDeleted") === "1";
+  const query = url.searchParams.get("q")?.trim();
   const db = getDb();
 
   if (!managed) {
@@ -29,7 +33,7 @@ export async function GET(request: Request) {
     }).from(columns)
       .innerJoin(users, eq(columns.creatorId, users.id))
       .leftJoin(articles, and(eq(articles.columnId, columns.id), eq(articles.status, "published"), isNull(articles.deletedAt)))
-      .where(isNull(columns.deletedAt))
+      .where(and(isNull(columns.deletedAt), query ? or(like(columns.title, `%${query}%`), like(columns.description, `%${query}%`), like(users.displayName, `%${query}%`)) : undefined))
       .groupBy(columns.id, columns.slug, columns.title, columns.description, columns.creatorId, users.displayName, columns.createdAt, columns.updatedAt, columns.latestPublishedAt, columns.deletedAt)
       .orderBy(desc(columns.latestPublishedAt), desc(columns.createdAt));
     return Response.json({ columns: rows.map(serializeColumn).filter((column) => column.articleCount > 0) });
@@ -56,7 +60,7 @@ export async function GET(request: Request) {
     .leftJoin(articles, and(eq(articles.columnId, columns.id), isNull(articles.deletedAt)))
     .where(and(
       includeDeleted ? undefined : isNull(columns.deletedAt),
-      user.role === "admin" ? undefined : or(eq(columns.creatorId, user.id), eq(columnMembers.userId, user.id)),
+      user.role === "owner" ? undefined : or(eq(columns.creatorId, user.id), eq(columnMembers.userId, user.id)),
     ))
     .groupBy(columns.id, columns.slug, columns.title, columns.description, columns.creatorId, users.displayName, columns.createdAt, columns.updatedAt, columns.latestPublishedAt, columns.deletedAt)
     .orderBy(desc(columns.updatedAt));
@@ -64,6 +68,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const originError = enforceSameOrigin(request);
+  if (originError) return originError;
   const user = await requireUser();
   if (!user) return Response.json({ error: "需要登录" }, { status: 401 });
   const payload = (await request.json()) as { title?: string; description?: string };
@@ -73,12 +79,13 @@ export async function POST(request: Request) {
   const now = new Date().toISOString();
   const [column] = await getDb().insert(columns).values({
     id,
-    slug: `column-${id.slice(0, 8)}`,
+    slug: slugWithId(title, id),
     title,
     description: payload.description?.trim() ?? "",
     creatorId: user.id,
     createdAt: now,
     updatedAt: now,
   }).returning();
+  await recordAudit(user.id, "create_column", "column", id);
   return Response.json({ column }, { status: 201 });
 }

@@ -8,11 +8,12 @@ const timestamps = {
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   username: text("username").notNull().unique(),
+  slug: text("slug").notNull().unique(),
   displayName: text("display_name").notNull(),
   avatarUrl: text("avatar_url"),
   signature: text("signature"),
   passwordHash: text("password_hash").notNull(),
-  role: text("role", { enum: ["admin", "author"] }).notNull().default("author"),
+  role: text("role", { enum: ["owner", "author"] }).notNull().default("author"),
   status: text("status", { enum: ["active", "disabled"] }).notNull().default("active"),
   mustChangePassword: integer("must_change_password", { mode: "boolean" }).notNull().default(true),
   passwordChangedAt: text("password_changed_at"),
@@ -58,6 +59,8 @@ export const articles = sqliteTable("articles", {
   authorId: text("author_id").notNull().references(() => users.id),
   title: text("title").notNull(),
   bodyMarkdown: text("body_markdown").notNull().default(""),
+  draftTitle: text("draft_title"),
+  draftBodyMarkdown: text("draft_body_markdown"),
   status: text("status", { enum: ["draft", "published", "deleted"] }).notNull().default("draft"),
   firstPublishedAt: text("first_published_at"),
   lastPublishedAt: text("last_published_at"),
@@ -75,15 +78,36 @@ export const articleVersions = sqliteTable("article_versions", {
   title: text("title").notNull(),
   bodyMarkdown: text("body_markdown").notNull(),
   savedBy: text("saved_by").notNull().references(() => users.id),
+  kind: text("kind", { enum: ["autosave", "publish", "delete"] }).notNull().default("autosave"),
   createdAt: text("created_at").notNull(),
 });
 
 export const media = sqliteTable("media", {
   id: text("id").primaryKey(),
   storageKey: text("storage_key").notNull().unique(),
+  displayKey: text("display_key").notNull().unique(),
+  avifKey: text("avif_key").unique(),
   originalName: text("original_name").notNull(),
   contentType: text("content_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   uploadedBy: text("uploaded_by").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull(),
+});
+
+export const slugHistory = sqliteTable("slug_history", {
+  id: text("id").primaryKey(),
+  resourceType: text("resource_type", { enum: ["article", "column", "author"] }).notNull(),
+  resourceId: text("resource_id").notNull(),
+  slug: text("slug").notNull().unique(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const auditLogs = sqliteTable("audit_logs", {
+  id: text("id").primaryKey(),
+  actorId: text("actor_id").references(() => users.id),
+  action: text("action").notNull(),
+  resourceType: text("resource_type").notNull(),
+  resourceId: text("resource_id"),
+  metadata: text("metadata"),
   createdAt: text("created_at").notNull(),
 });

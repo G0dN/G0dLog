@@ -1,8 +1,5 @@
-import { drizzle } from "drizzle-orm/d1";
-import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { drizzle as drizzleProxy } from "drizzle-orm/sqlite-proxy";
 import * as schema from "./schema";
-import { getRuntimeEnv } from "../lib/runtime-env";
 
 type LocalStatement = {
   setReturnArrays(value: boolean): void;
@@ -17,7 +14,8 @@ type LocalDatabase = {
 };
 
 let localDatabase: LocalDatabase | null = null;
-let localDb: DrizzleD1Database<typeof schema> | null = null;
+type AppDatabase = ReturnType<typeof drizzleProxy<typeof schema>>;
+let localDb: AppDatabase | null = null;
 
 function getLocalDb() {
   if (localDb) return localDb;
@@ -36,12 +34,18 @@ function getLocalDb() {
   const versionStatement = localDatabase.prepare("PRAGMA user_version");
   versionStatement.setReturnArrays(true);
   const version = Number((versionStatement.get() as unknown[] | undefined)?.[0] ?? 0);
-  if (version < 2) {
-    const migrationDir = path.resolve("drizzle");
-    const migrationNames = ["0000_abandoned_warhawk.sql", "0001_moaning_blonde_phantom.sql"];
-    for (const migrationName of migrationNames) localDatabase.exec(fs.readFileSync(path.join(migrationDir, migrationName), "utf8"));
-    localDatabase.exec("PRAGMA user_version=2");
+  const migrationDir = path.resolve("drizzle");
+  const migrations = [
+    [1, "0000_abandoned_warhawk.sql"],
+    [2, "0001_moaning_blonde_phantom.sql"],
+    [3, "0002_g0dlog_baseline.sql"],
+    [4, "0003_media_derivatives.sql"],
+    [5, "0004_draft_and_avif.sql"],
+  ] as const;
+  for (const [targetVersion, migrationName] of migrations) {
+    if (version < targetVersion) localDatabase.exec(fs.readFileSync(path.join(migrationDir, migrationName), "utf8"));
   }
+  if (version < 5) localDatabase.exec("PRAGMA user_version=5");
   const callback = async (sql: string, params: unknown[], method: "run" | "all" | "values" | "get") => {
     const statement = localDatabase?.prepare(sql);
     if (!statement) throw new Error("本地数据库未初始化");
@@ -53,14 +57,12 @@ function getLocalDb() {
     if (method === "get") return { rows: statement.get(...params) as never[] };
     return { rows: statement.all(...params) };
   };
-  localDb = drizzleProxy(callback, { schema }) as unknown as DrizzleD1Database<typeof schema>;
+  localDb = drizzleProxy(callback, { schema });
   return localDb;
 }
 
-export function getDb(): DrizzleD1Database<typeof schema> {
-  const env = getRuntimeEnv();
-  if (env.DB) return drizzle(env.DB, { schema });
+export function getDb(): AppDatabase {
   const local = getLocalDb();
   if (local) return local;
-  throw new Error("数据库绑定不可用：本地请确保 Node.js >= 22.13，部署时请配置 D1 DB");
+  throw new Error("SQLite 数据库不可用：请确保 Node.js >= 22.13，并检查 BLOG_DATA_DIR");
 }

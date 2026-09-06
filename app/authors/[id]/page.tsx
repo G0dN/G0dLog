@@ -1,6 +1,9 @@
-import Home from "../../page";
+import { notFound, redirect } from "next/navigation";
+import { authorCanonicalPath, getPublicAuthor } from "../../../lib/content";
 
-export default async function AuthorPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LegacyAuthorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return <Home initialAuthorId={id} />;
+  const row = await getPublicAuthor(id);
+  if (!row) notFound();
+  redirect(authorCanonicalPath(row.author));
 }

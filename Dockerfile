@@ -1,17 +1,31 @@
-FROM node:22-alpine AS build
+FROM node:22-alpine AS base
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
 
-FROM node:22-alpine
+FROM base AS deps
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN pnpm build
+
+FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=build /app/package*.json ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/drizzle ./drizzle
-COPY --from=build /app/public ./public
+ENV BLOG_DATA_DIR=/var/lib/g0dlog/data
+ENV BLOG_MEDIA_DIR=/var/lib/g0dlog/media
+ENV BLOG_BACKUP_DIR=/var/lib/g0dlog/backups
+RUN mkdir -p /var/lib/g0dlog/data /var/lib/g0dlog/media /var/lib/g0dlog/backups && chown -R node:node /var/lib/g0dlog
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/drizzle ./drizzle
+COPY --from=builder /app/scripts ./scripts
+USER node
 EXPOSE 3000
-CMD ["npm", "run", "start"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
+CMD ["sh", "-c", "node scripts/validate-production-config.mjs && node server.js"]

@@ -1,64 +1,105 @@
-# 一页 YiYe Notes
+# G0dLog
 
-一个克制、留白充分的中文个人博客与教程站原型。公开阅读页以浏览器 PDF 阅读器为参考，后台工作台围绕 Markdown 写作、自动保存、版本历史、专栏管理与协作者权限设计。
+G0dLog is a small, Chinese-language multi-author blog for one Owner and invited authors. It is designed for a calm public reading experience and straightforward self-hosting on a NAS.
 
-## 本地运行
+The production architecture is a standard Next.js Node.js application with Drizzle ORM and SQLite. The SQLite database and local media directory are mounted from the host; public image derivatives are served by the application, while original uploads require an authenticated Owner or author session.
 
-要求 Node.js `>=22.13.0`。
+## Requirements
 
-```bash
-npm install
-npm run build
-npm run start
-```
+- Node.js `>=22.13.0`
+- pnpm `11.19.0` (Corepack can provide it)
+- Docker and Compose for the NAS deployment
 
-打开终端输出的本地地址即可查看：
-
-- 首页：专栏列表、最近文章、站点介绍；
-- 全站搜索：同时检索文章、专栏与作者；
-- 阅读页：专栏目录、专栏内搜索、文章目录与响应式移动目录；
-- 工作台：`/studio`。文章、专栏、成员与权限均有独立入口；登录后可以创建作者、首次改密、邀请/移除协作者、软删除/恢复专栏和调整文章顺序。
-
-公开示例内容仍集中写在 `app/page.tsx`，用于无数据库时预览页面；登录后的后台数据通过 D1 API 持久化，图片通过 R2 API 持久化。服务端会校验账号、专栏成员关系、文章编辑权限和版本号，移除协作者不会删除其既有文章。
-
-首次配置管理员时，先生成一条不保存明文密码的 SQL，再交给 D1 执行：
+## Local development
 
 ```bash
-node scripts/bootstrap-admin.mjs admin 管理员 '请替换为至少 8 位密码' > /tmp/yinye-admin.sql
-wrangler d1 execute site-creator-d1 --local --file=/tmp/yinye-admin.sql
+corepack enable
+pnpm install
+pnpm dev
 ```
 
-生产环境将 `--local` 换成对应的远程 D1 选项，并先执行 `drizzle/0000_abandoned_warhawk.sql` 和 `drizzle/0001_moaning_blonde_phantom.sql`。不要把生成的 SQL 或密码提交到仓库。
+The first database access creates `.data/blog.sqlite` and applies the migrations in `drizzle/`. Local media is stored in `.media/`. These directories are ignored by Git.
 
-## 验证
+For a production build and standalone server (the production validator intentionally requires explicit paths and a site URL):
 
 ```bash
-npm run build
-npm test
-npm run lint
+pnpm lint
+pnpm test
+pnpm build
+ALLOW_INSECURE_LOCAL=1 PUBLIC_SITE_URL=http://127.0.0.1:3000 BLOG_DATA_DIR="$PWD/.data" BLOG_MEDIA_DIR="$PWD/.media" BLOG_BACKUP_DIR="$PWD/.backups" PORT=3000 pnpm start
 ```
 
-## 持久化与部署
+The initial Owner is created offline after the database exists:
 
-`.openai/hosting.json` 已声明：结构化数据使用 `DB`（D1），媒体文件使用 `MEDIA`（R2）。数据库表覆盖用户、会话、专栏、成员关系、文章、版本历史和媒体元数据；文章使用不可变 ID 和 slug 关联，删除字段均为软删除，文章保存使用版本号支持冲突检测。D1 迁移文件位于 `drizzle/`，R2 媒体接口限制图片类型和 10 MB 大小，并生成随机安全文件名。
+```bash
+pnpm db:bootstrap-owner -- owner "Site Owner" 'Replace-With-A-Strong-Password9!'
+```
 
-正式部署的建议目录：
+If the web UI is unavailable, reset the Owner password directly on the NAS:
+
+```bash
+BLOG_DATA_DIR=/path/to/data node scripts/reset-owner-password.mjs 'New-Strong-Password9!'
+```
+
+Both commands enforce the password policy and invalidate existing sessions when appropriate. Do not put real passwords in shell history, logs, backups, or commits.
+
+## Product surfaces
+
+- Public home, author, column, and article pages require no login.
+- Search covers article titles and bodies, authors, and columns, with simple Chinese/English substring matching and highlighting.
+- Stable public URLs use an immutable resource ID plus a readable slug. Older slugs are recorded and redirected to the canonical URL.
+- `/studio` provides Owner and author login, column/member management, Markdown source plus preview editing, autosave, local draft recovery, version history, publishing, soft deletion, restore, and profile/password management.
+- Markdown rendering is allowlisted: raw HTML is rendered as text, resource URLs are restricted, fenced code uses the bundled highlight.js grammar, formulas use the bundled KaTeX CSS/runtime, images are magic-byte checked on upload, metadata is stripped, and non-GIF uploads receive WebP and AVIF display derivatives.
+- Public output includes `/rss.xml`, `/sitemap.xml`, `/robots.txt`, canonical metadata, and Open Graph metadata.
+
+The first version intentionally does not include comments, likes, follows, public registration, private content, mail password recovery, two-factor authentication, generic attachments, Mermaid, analytics, or a second external database/object store.
+
+## Data and deployment
+
+Copy `.env.example` to `.env` for a Compose deployment. At minimum, provide the public HTTPS URL and persistent host directories:
 
 ```text
-/volume1/docker/yinye/
-├── data/       # 数据库文件或迁移产物
-├── media/      # 图片媒体
-└── backups/    # 第二份备份
+G0DLOG_IMAGE=ghcr.io/g0dn/g0dlog:latest
+BLOG_DATA_DIR=/path/on/nas/g0dlog/data
+BLOG_MEDIA_DIR=/path/on/nas/g0dlog/media
+BLOG_BACKUP_DIR=/path/on/nas/g0dlog/backups
+PUBLIC_SITE_URL=https://your-public-domain.example
 ```
 
-NAS 上使用 Docker Compose 时，先复制 `.env.example` 为 `.env`，填写实际目录，确保 `data`、`media` 和 `backups` 都是 Docker volume 或 bind mount，不要把内容放在容器层。可执行备份脚本：
+Start the production container with the published image:
 
 ```bash
-./scripts/backup.sh
+docker compose pull
+docker compose up -d --no-build
+docker compose ps
 ```
 
-脚本会把数据库目录、Markdown/迁移文件和媒体目录打包到带时间戳的备份目录。正式使用时还需要把 `backups` 同步到另一块硬盘或另一台设备；“永久保留”不能只依赖 NAS 上的一份数据。
+Production startup rejects missing persistent paths, placeholder domains, and non-HTTPS public URLs; local standalone checks must explicitly set `ALLOW_INSECURE_LOCAL=1` as shown above.
 
-## 第一版边界
+The public release image is `ghcr.io/g0dn/g0dlog:latest` (release tags are also published). Set the GHCR package visibility to **Public** once in the repository's Packages settings. The image has a health check at `/api/health`. `docs/deploy-zspace.zh-CN.md` documents the ZSpace Z4S, Cloudflare DNS/Tunnel, update lock, backup, and recovery workflow. Cloudflare is only an HTTPS/DNS/Tunnel edge; it is not the database or media store.
 
-不包含评论、点赞、关注、邮件通知、统计、私密文章、开放注册和邮箱找回密码。后台账号由管理员创建，停用账号不删除其已公开内容。
+## Backup, export, and recovery
+
+Create a checksummed NAS backup:
+
+```bash
+BLOG_DATA_DIR=./data BLOG_MEDIA_DIR=./media BLOG_BACKUP_DIR=./backups sh scripts/backup.sh
+```
+
+Create a portable JSON plus media export and restore it into an empty directory:
+
+```bash
+node scripts/export.mjs ./exports/g0dlog-export
+node scripts/import.mjs ./exports/g0dlog-export ./restore-data
+BLOG_MEDIA_DIR=./restore-media node scripts/verify-restore.mjs ./restore-data ./restore-media
+```
+
+The export includes authors, columns, collaborators, articles, versions, slug history, media metadata/files, audit records, checksums, and import order. Sessions are intentionally excluded. The backup script uses a consistent SQLite snapshot rather than copying a live database file byte-for-byte. See `docs/restore.zh-CN.md` for the quarterly isolated restore drill.
+
+## Release automation
+
+`.github/workflows/release.yml` runs lint, tests, a production build, and pushes the tagged image to GHCR. Release/tag runs require the Render and NAS webhook secrets instead of silently skipping deployment. The NAS helper `scripts/deploy-nas.sh` takes a deployment lock, creates a backup, pulls the exact release image from `RELEASE_VERSION`, waits for the health check, and rolls back to the previous image on failure. `scripts/release-webhook.mjs` is the small HMAC-authenticated receiver for the NAS host.
+
+## License
+
+G0dLog is released under the MIT License. See [LICENSE](LICENSE).

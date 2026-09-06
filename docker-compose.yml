@@ -1,12 +1,23 @@
 services:
-  yinye:
+  g0dlog:
+    image: ${G0DLOG_IMAGE:?G0DLOG_IMAGE must be set in .env}
     build: .
     restart: unless-stopped
     ports:
       - "${BLOG_PORT:-3000}:3000"
     environment:
-      BLOG_DATA_DIR: /var/lib/yinye/data
-      BLOG_MEDIA_DIR: /var/lib/yinye/media
+      NODE_ENV: production
+      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:?PUBLIC_SITE_URL must be set in .env}
+      BLOG_DATA_DIR: /var/lib/g0dlog/data
+      BLOG_MEDIA_DIR: /var/lib/g0dlog/media
+      BLOG_BACKUP_DIR: /var/lib/g0dlog/backups
     volumes:
-      - ${BLOG_DATA_DIR:-./data}:/var/lib/yinye/data
-      - ${BLOG_MEDIA_DIR:-./media}:/var/lib/yinye/media
+      - ${BLOG_DATA_DIR:?BLOG_DATA_DIR must be set in .env}:/var/lib/g0dlog/data
+      - ${BLOG_MEDIA_DIR:?BLOG_MEDIA_DIR must be set in .env}:/var/lib/g0dlog/media
+      - ${BLOG_BACKUP_DIR:?BLOG_BACKUP_DIR must be set in .env}:/var/lib/g0dlog/backups
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

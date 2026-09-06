@@ -1,15 +1,33 @@
 #!/usr/bin/env sh
 set -eu
 
-DATA_DIR="${BLOG_DATA_DIR:-./data}"
-MEDIA_DIR="${BLOG_MEDIA_DIR:-./media}"
-BACKUP_DIR="${BLOG_BACKUP_DIR:-./backups}"
-STAMP="$(date +%Y%m%d-%H%M%S)"
-TARGET="$BACKUP_DIR/yinye-$STAMP"
+: "${BLOG_DATA_DIR:?BLOG_DATA_DIR must be set}"
+: "${BLOG_MEDIA_DIR:?BLOG_MEDIA_DIR must be set}"
+: "${BLOG_BACKUP_DIR:?BLOG_BACKUP_DIR must be set}"
+data_dir=$BLOG_DATA_DIR
+media_dir=$BLOG_MEDIA_DIR
+backup_dir=$BLOG_BACKUP_DIR
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+target="$backup_dir/g0dlog-$stamp"
+tmp="$backup_dir/.g0dlog-$stamp.tmp"
 
-mkdir -p "$TARGET"
-[ -d "$DATA_DIR" ] && cp -R "$DATA_DIR" "$TARGET/data" || true
-[ -d "$MEDIA_DIR" ] && cp -R "$MEDIA_DIR" "$TARGET/media" || true
-[ -d "./drizzle" ] && cp -R ./drizzle "$TARGET/drizzle" || true
+mkdir -p "$backup_dir"
+rm -rf "$tmp"
+mkdir -p "$tmp/data" "$tmp/media"
+BLOG_DATA_DIR="$data_dir" node scripts/snapshot-sqlite.mjs "$tmp/data/blog.sqlite"
+if [ -d "$media_dir" ]; then cp -a "$media_dir/." "$tmp/media/"; fi
+for file in docker-compose.yml Dockerfile package.json pnpm-lock.yaml .env.example README.md LICENSE next.config.ts; do
+  if [ -f "$file" ]; then cp "$file" "$tmp/"; fi
+done
+if [ -d docs ]; then cp -a docs "$tmp/docs"; fi
+if [ -d drizzle ]; then cp -a drizzle "$tmp/drizzle"; fi
+if [ -d scripts ]; then cp -a scripts "$tmp/scripts"; fi
 
-printf '%s\n' "备份完成：$TARGET"
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$tmp" && find . -type f -print | sort | xargs sha256sum > manifest.sha256)
+else
+  (cd "$tmp" && find . -type f -print | sort | xargs shasum -a 256 > manifest.sha256)
+fi
+mv "$tmp" "$target"
+BLOG_DATA_DIR="$data_dir" node scripts/prune-audit.mjs >/dev/null
+printf '%s\n' "Created backup: $target"
