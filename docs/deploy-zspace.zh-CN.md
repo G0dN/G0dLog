@@ -55,7 +55,7 @@ BLOG_DATA_DIR=/DATA/G0dLog/data BLOG_MEDIA_DIR=/DATA/G0dLog/media BLOG_BACKUP_DI
 node scripts/release-webhook.mjs
 ```
 
-接收器只接受带 `X-Hub-Signature-256` 的 `POST /deploy`，只允许版本标签和固定 GHCR 仓库；它返回 `202` 后由部署锁保证不会并行升级。GitHub Actions 的 `NAS_DEPLOY_WEBHOOK_URL` 与 `NAS_DEPLOY_WEBHOOK_SECRET` 任一缺失时，发布工作流会失败而不是显示成功。
+接收器只接受带 `X-Hub-Signature-256` 的 `POST /deploy`，只允许版本标签和固定 GHCR 仓库；它会同步等待备份、拉取、健康检查和必要的回滚完成，只有部署成功才返回 `200`，失败返回 `502`。部署脚本要求宿主机提供 `flock`，缺少时会安全失败，不会无锁继续发布。GitHub Actions 的 `NAS_DEPLOY_WEBHOOK_URL` 与 `NAS_DEPLOY_WEBHOOK_SECRET` 任一缺失时，发布工作流会失败而不是显示成功。
 
 ## Cloudflare Tunnel
 

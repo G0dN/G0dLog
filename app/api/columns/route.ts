@@ -41,7 +41,7 @@ export async function GET(request: Request) {
 
   const user = await requireUser();
   if (!user) return Response.json({ error: "需要登录" }, { status: 401 });
-  const membership = and(eq(columnMembers.userId, user.id), eq(columnMembers.status, "active"));
+  const membership = and(eq(columnMembers.columnId, columns.id), eq(columnMembers.userId, user.id), eq(columnMembers.status, "active"));
   const rows = await db.select({
     id: columns.id,
     slug: columns.slug,

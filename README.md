@@ -98,7 +98,7 @@ The export includes authors, columns, collaborators, articles, versions, slug hi
 
 ## Release automation
 
-`.github/workflows/release.yml` runs lint, tests, a production build, and pushes the tagged image to GHCR. Release/tag runs require the Render and NAS webhook secrets instead of silently skipping deployment. The NAS helper `scripts/deploy-nas.sh` takes a deployment lock, creates a backup, pulls the exact release image from `RELEASE_VERSION`, waits for the health check, and rolls back to the previous image on failure. `scripts/release-webhook.mjs` is the small HMAC-authenticated receiver for the NAS host.
+`.github/workflows/release.yml` runs lint, tests, a production build, and pushes the tagged image to GHCR. Release/tag runs require the Render and NAS webhook secrets instead of silently skipping deployment. The NAS helper `scripts/deploy-nas.sh` requires `flock`, takes a deployment lock, creates a backup, pulls the exact release image from `RELEASE_VERSION`, waits for the health check, and rolls back to the previous image on failure. `scripts/release-webhook.mjs` is the HMAC-authenticated receiver for the NAS host; it waits for the deployment process and returns failure to GitHub Actions when the health gate or rollback fails.
 
 ## License
 

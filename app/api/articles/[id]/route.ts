@@ -64,10 +64,19 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const isRestore = payload.action === "restore";
   const shouldPublish = !isDelete && (payload.saveKind === "publish" || (isRestore && payload.status === "published"));
   const nextStatus = isDelete ? "deleted" : isRestore ? (payload.status === "published" ? "published" : "draft") : shouldPublish ? "published" : current.article.status;
+  const db = getDb();
+  let restoreSnapshot: { title: string; bodyMarkdown: string } | undefined;
+  if (isRestore && current.article.status === "deleted" && payload.title === undefined && payload.bodyMarkdown === undefined) {
+    [restoreSnapshot] = await db.select({ title: articleVersions.title, bodyMarkdown: articleVersions.bodyMarkdown }).from(articleVersions).where(and(eq(articleVersions.articleId, id), eq(articleVersions.kind, "delete"))).orderBy(desc(articleVersions.version)).limit(1);
+  }
+  const restoreTitle = restoreSnapshot?.title ?? current.article.title;
+  const restoreBody = restoreSnapshot?.bodyMarkdown ?? current.article.bodyMarkdown;
+  const deleteTitle = current.article.draftTitle ?? current.article.title;
+  const deleteBody = current.article.draftBodyMarkdown ?? current.article.bodyMarkdown;
   const sourceTitle = payload.title === undefined ? current.article.draftTitle ?? current.article.title : payload.title.trim();
   const sourceBody = payload.bodyMarkdown === undefined ? current.article.draftBodyMarkdown ?? current.article.bodyMarkdown : payload.bodyMarkdown;
-  const nextTitle = isDelete || isRestore ? (payload.title?.trim() || current.article.title) : sourceTitle;
-  const nextBody = isDelete || isRestore ? (payload.bodyMarkdown ?? current.article.bodyMarkdown) : sourceBody;
+  const nextTitle = isDelete ? deleteTitle : isRestore ? (payload.title?.trim() || restoreTitle) : sourceTitle;
+  const nextBody = isDelete ? deleteBody : isRestore ? (payload.bodyMarkdown ?? restoreBody) : sourceBody;
   if (!nextTitle) return Response.json({ error: "文章标题不能为空" }, { status: 400 });
 
   const now = new Date().toISOString();
@@ -76,13 +85,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const lastPublishedAt = shouldPublish ? now : current.article.lastPublishedAt;
   const nextSlug = shouldPublish ? payload.slug?.trim() || (payload.title === undefined ? current.article.slug : readableSlug(nextTitle, id.slice(0, 8))) : current.article.slug;
   const update = isDelete
-    ? { status: "deleted" as const, deletedAt: now, deletedBy: user.id, draftTitle: null, draftBodyMarkdown: null }
+    ? { title: deleteTitle, bodyMarkdown: deleteBody, status: "deleted" as const, deletedAt: now, deletedBy: user.id, draftTitle: null, draftBodyMarkdown: null }
     : isRestore
       ? { title: nextTitle, bodyMarkdown: nextBody, status: nextStatus, firstPublishedAt, lastPublishedAt, deletedAt: null, deletedBy: null, draftTitle: null, draftBodyMarkdown: null }
       : shouldPublish
         ? { slug: nextSlug, title: nextTitle, bodyMarkdown: nextBody, status: "published" as const, firstPublishedAt, lastPublishedAt, draftTitle: null, draftBodyMarkdown: null, deletedAt: null, deletedBy: null }
         : { draftTitle: nextTitle, draftBodyMarkdown: nextBody, status: current.article.status, deletedAt: null, deletedBy: null };
-  const db = getDb();
   let updated;
   try {
     [updated] = await db.update(articles).set({ ...update, version: nextVersion, updatedAt: now }).where(and(eq(articles.id, id), eq(articles.version, current.article.version))).returning();
@@ -104,7 +112,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (kind === "autosave") await trimAutosaves(id);
   if (isDelete || shouldPublish) await refreshColumnLatestPublishedAt(current.article.columnId, now);
   await recordAudit(user.id, kind === "publish" ? "publish_article" : kind === "delete" ? "delete_article" : "autosave_article", "article", id);
-  return Response.json({ article: editorArticle(updated) });
+  const responseArticle = isDelete ? { ...editorArticle(updated), title: deleteTitle, bodyMarkdown: deleteBody } : editorArticle(updated);
+  return Response.json({ article: responseArticle });
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -117,11 +126,13 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   if (!current) return Response.json({ error: "文章不存在" }, { status: 404 });
   const now = new Date().toISOString();
   const nextVersion = current.article.version + 1;
+  const deleteTitle = current.article.draftTitle ?? current.article.title;
+  const deleteBody = current.article.draftBodyMarkdown ?? current.article.bodyMarkdown;
   const db = getDb();
-  const [article] = await db.update(articles).set({ status: "deleted", deletedAt: now, deletedBy: user.id, draftTitle: null, draftBodyMarkdown: null, version: nextVersion, updatedAt: now }).where(and(eq(articles.id, id), eq(articles.version, current.article.version))).returning({ id: articles.id, status: articles.status, deletedAt: articles.deletedAt, version: articles.version });
+  const [article] = await db.update(articles).set({ title: deleteTitle, bodyMarkdown: deleteBody, status: "deleted", deletedAt: now, deletedBy: user.id, draftTitle: null, draftBodyMarkdown: null, version: nextVersion, updatedAt: now }).where(and(eq(articles.id, id), eq(articles.version, current.article.version))).returning({ id: articles.id, status: articles.status, deletedAt: articles.deletedAt, version: articles.version });
   if (!article) return Response.json({ error: "检测到内容冲突" }, { status: 409 });
-  await db.insert(articleVersions).values({ id: crypto.randomUUID(), articleId: id, version: nextVersion, title: current.article.title, bodyMarkdown: current.article.bodyMarkdown, savedBy: user.id, kind: "delete", createdAt: now });
+  await db.insert(articleVersions).values({ id: crypto.randomUUID(), articleId: id, version: nextVersion, title: deleteTitle, bodyMarkdown: deleteBody, savedBy: user.id, kind: "delete", createdAt: now });
   await refreshColumnLatestPublishedAt(current.article.columnId, now);
   await recordAudit(user.id, "delete_article", "article", id);
-  return Response.json({ article });
+  return Response.json({ article: { ...article, title: deleteTitle, bodyMarkdown: deleteBody } });
 }

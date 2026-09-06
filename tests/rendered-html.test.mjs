@@ -135,6 +135,43 @@ test("SQLite workflow enforces roles, versions, stable URLs and private original
   assert.equal(forbidden.response.status, 403);
   const secondArticleResponse = await api("/api/articles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columnId: column.id, title: "公开文章", bodyMarkdown: "可公开内容" }) }, authorTwoCookie);
   const secondArticle = (await json(secondArticleResponse.response)).article;
+  const unrelatedColumnResponse = await api("/api/columns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "无关专栏", description: "不应出现在协作者后台" }) }, ownerCookie);
+  assert.equal(unrelatedColumnResponse.response.status, 201);
+  const unrelatedColumn = (await json(unrelatedColumnResponse.response)).column;
+  const unrelatedArticleResponse = await api("/api/articles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columnId: unrelatedColumn.id, title: "无关草稿", bodyMarkdown: "不可读取" }) }, ownerCookie);
+  assert.equal(unrelatedArticleResponse.response.status, 201);
+  const unrelatedArticle = (await json(unrelatedArticleResponse.response)).article;
+  const managedColumns = await api("/api/columns?scope=managed&includeDeleted=1", {}, authorTwoCookie);
+  assert.equal(managedColumns.response.status, 200);
+  assert.deepEqual((await json(managedColumns.response)).columns.map((item) => item.id), [column.id]);
+  const managedArticles = await api("/api/articles?scope=managed&includeDeleted=1", {}, authorTwoCookie);
+  assert.equal(managedArticles.response.status, 200);
+  const managedArticleIds = (await json(managedArticles.response)).articles.map((item) => item.id);
+  assert.deepEqual(managedArticleIds, [secondArticle.id]);
+  const deleteOtherAuthorDraft = await api(`/api/articles/${firstArticle.id}`, { method: "DELETE" }, ownerCookie);
+  assert.equal(deleteOtherAuthorDraft.response.status, 200);
+  const managedAfterDelete = await api("/api/articles?scope=managed&includeDeleted=1", {}, authorTwoCookie);
+  assert.equal((await json(managedAfterDelete.response)).articles.some((item) => item.id === firstArticle.id || item.id === unrelatedArticle.id), false);
+
+  const deleteCandidateResponse = await api("/api/articles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columnId: column.id, title: "删除前标题", bodyMarkdown: "删除前公开正文", status: "published" }) }, authorOneCookie);
+  const deleteCandidate = (await json(deleteCandidateResponse.response)).article;
+  const deleteCandidateAutosave = await api(`/api/articles/${deleteCandidate.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: deleteCandidate.version, title: "删除前最终标题", bodyMarkdown: "删除前最终编辑正文" }) }, authorOneCookie);
+  assert.equal(deleteCandidateAutosave.response.status, 200);
+  const deletedWithDraft = await api(`/api/articles/${deleteCandidate.id}`, { method: "DELETE" }, authorOneCookie);
+  assert.equal(deletedWithDraft.response.status, 200);
+  const deletedWithDraftPayload = await json(deletedWithDraft.response);
+  assert.equal(deletedWithDraftPayload.article.title, "删除前最终标题");
+  assert.equal(deletedWithDraftPayload.article.bodyMarkdown, "删除前最终编辑正文");
+  const deletedWithDraftVersions = await api(`/api/articles/${deleteCandidate.id}/versions`, {}, ownerCookie);
+  const deleteSnapshot = (await json(deletedWithDraftVersions.response)).versions.find((version) => version.kind === "delete");
+  assert.equal(deleteSnapshot.title, "删除前最终标题");
+  assert.equal(deleteSnapshot.bodyMarkdown, "删除前最终编辑正文");
+  const restoredDeleteCandidate = await api(`/api/articles/${deleteCandidate.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: deletedWithDraftPayload.article.version, action: "restore", status: "draft" }) }, ownerCookie);
+  assert.equal(restoredDeleteCandidate.response.status, 200);
+  const restoredDeleteCandidatePayload = await json(restoredDeleteCandidate.response);
+  assert.equal(restoredDeleteCandidatePayload.article.title, "删除前最终标题");
+  assert.equal(restoredDeleteCandidatePayload.article.bodyMarkdown, "删除前最终编辑正文");
+
   const published = await api(`/api/articles/${secondArticle.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: secondArticle.version, title: secondArticle.title, bodyMarkdown: secondArticle.bodyMarkdown, saveKind: "publish", status: "published" }) }, authorTwoCookie);
   assert.equal(published.response.status, 200);
   const publishedArticle = (await json(published.response)).article;
@@ -243,6 +280,8 @@ test("core schema, permissions, deployment and editor surfaces are present", asy
     columnApi: await readFile(new URL("app/api/columns/[id]/members/route.ts", root), "utf8"),
     authApi: await readFile(new URL("app/api/auth/login/route.ts", root), "utf8"),
     authLib: await readFile(new URL("lib/server-auth.ts", root), "utf8"),
+    articleList: await readFile(new URL("app/api/articles/route.ts", root), "utf8"),
+    columnList: await readFile(new URL("app/api/columns/route.ts", root), "utf8"),
     articleApi: await readFile(new URL("app/api/articles/[id]/route.ts", root), "utf8"),
     mediaApi: await readFile(new URL("app/api/media/route.ts", root), "utf8"),
     standalone: await readFile(new URL("scripts/prepare-standalone.mjs", root), "utf8"),
@@ -251,6 +290,7 @@ test("core schema, permissions, deployment and editor surfaces are present", asy
     workflow: await readFile(new URL(".github/workflows/release.yml", root), "utf8"),
     config: await readFile(new URL("scripts/validate-production-config.mjs", root), "utf8"),
     backup: await readFile(new URL("scripts/backup.sh", root), "utf8"),
+    envExample: await readFile(new URL(".env.example", root), "utf8"),
     layout: await readFile(new URL("app/layout.tsx", root), "utf8"),
     siteConfig: await readFile(new URL("lib/site-config.ts", root), "utf8"),
     package: JSON.parse(await readFile(new URL("package.json", root), "utf8")),
@@ -261,6 +301,9 @@ test("core schema, permissions, deployment and editor surfaces are present", asy
   for (const label of ["requireColumnManager", "status: \"removed\"", "removedAt", "columnMembers"]) assert.match(files.columnApi, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   for (const label of ["verifyPassword", "createSession", "mustChangePassword"]) assert.match(files.authApi, new RegExp(label));
   for (const label of ["hashPassword", "PBKDF2", "SESSION_COOKIE"]) assert.match(files.authLib, new RegExp(label));
+  assert.match(files.articleList, /eq\(columnMembers\.columnId, columns\.id\)/);
+  assert.match(files.articleList, /eq\(articles\.authorId, user\.id\)/);
+  assert.match(files.columnList, /eq\(columnMembers\.columnId, columns\.id\)/);
   for (const label of ["检测到内容冲突", "articleVersions", "deletedAt"]) assert.match(files.articleApi, new RegExp(label));
   for (const label of ["detectType", "10 * 1024 * 1024", "stripJpegMetadata", "avif", "avifKey"]) assert.match(files.mediaApi, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(files.compose, /BLOG_DATA_DIR/);
@@ -272,13 +315,20 @@ test("core schema, permissions, deployment and editor surfaces are present", asy
   assert.match(files.deploy, /RELEASE_VERSION/);
   assert.match(files.deploy, /docker compose[^\n]+pull/);
   assert.match(files.deploy, /--no-build/);
+  assert.match(files.deploy, /command -v flock/);
+  assert.doesNotMatch(files.deploy, /if command -v flock/);
+  assert.doesNotMatch(files.deploy, /audit-deploy\.mjs.*\|\| true/);
   assert.match(files.webhook, /X-Hub-Signature-256|x-hub-signature-256/);
+  assert.match(files.webhook, /child\.once\("close"/);
+  assert.match(files.webhook, /502/);
+  assert.doesNotMatch(files.webhook, /detached|unref/);
   assert.match(files.workflow, /push: true/);
   assert.match(files.workflow, /docker\/login-action/);
   assert.match(files.workflow, /NAS_DEPLOY_WEBHOOK_SECRET/);
   assert.match(files.config, /PUBLIC_SITE_URL/);
   assert.match(files.config, /Missing required production configuration/);
   assert.match(files.backup, /BLOG_DATA_DIR:\?/);
+  assert.match(files.envExample, /G0DLOG_IMAGE=/);
   assert.doesNotMatch(files.layout, /localhost:3000/);
   assert.doesNotMatch(files.siteConfig, /localhost:3000/);
   assert.match(files.package.scripts.start, /validate-production-config/);

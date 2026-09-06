@@ -27,7 +27,11 @@ export G0DLOG_IMAGE
 : "${BLOG_BACKUP_DIR:?BLOG_BACKUP_DIR must be set}"
 
 exec 9>"$lock_file"
-if command -v flock >/dev/null 2>&1; then flock -n 9 || { echo "Another deployment is running." >&2; exit 1; }; fi
+if ! command -v flock >/dev/null 2>&1; then
+  echo "flock is required for safe deployments; install it or configure the NAS deployment host with a flock-compatible utility." >&2
+  exit 1
+fi
+flock -n 9 || { echo "Another deployment is running." >&2; exit 1; }
 
 BLOG_DATA_DIR="$BLOG_DATA_DIR" BLOG_MEDIA_DIR="$BLOG_MEDIA_DIR" BLOG_BACKUP_DIR="$BLOG_BACKUP_DIR" sh "$repo_dir/scripts/backup.sh"
 
@@ -64,5 +68,5 @@ if ! wait_for_health; then
   exit 1
 fi
 
-BLOG_DATA_DIR="$BLOG_DATA_DIR" RELEASE_VERSION="$release_version" G0DLOG_IMAGE="$G0DLOG_IMAGE" node "$repo_dir/scripts/audit-deploy.mjs" || true
+BLOG_DATA_DIR="$BLOG_DATA_DIR" RELEASE_VERSION="$release_version" G0DLOG_IMAGE="$G0DLOG_IMAGE" node "$repo_dir/scripts/audit-deploy.mjs"
 echo "G0dLog deployment is healthy: $G0DLOG_IMAGE"

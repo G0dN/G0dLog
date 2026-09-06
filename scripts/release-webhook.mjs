@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -11,6 +12,7 @@ const maxBodyBytes = 1024 * 1024;
 if (!secret) throw new Error("G0DLOG_WEBHOOK_SECRET is required");
 
 function send(response, status, body) {
+  if (response.destroyed || response.writableEnded) return;
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
   response.end(JSON.stringify(body));
 }
@@ -52,9 +54,15 @@ const server = http.createServer(async (request, response) => {
     const image = typeof payload.image === "string" && payload.image.trim() ? payload.image.trim().toLowerCase() : expectedImage;
     if (image !== expectedImage) return send(response, 400, { error: "image must match the release version and repository" });
     const script = path.join(workdir, "scripts", "deploy-nas.sh");
-    const child = spawn("sh", [script], { cwd: workdir, detached: true, stdio: "ignore", env: { ...process.env, RELEASE_VERSION: ref, GITHUB_REF_NAME: ref, G0DLOG_IMAGE: image } });
-    child.unref();
-    return send(response, 202, { accepted: true, ref });
+    if (!fs.existsSync(script)) return send(response, 500, { error: "deployment script is not available" });
+    const result = await new Promise((resolve) => {
+      const child = spawn("sh", [script], { cwd: workdir, stdio: "ignore", env: { ...process.env, RELEASE_VERSION: ref, GITHUB_REF_NAME: ref, G0DLOG_IMAGE: image } });
+      child.once("error", (error) => resolve({ error }));
+      child.once("close", (code, signal) => resolve({ code, signal }));
+    });
+    if ("error" in result) return send(response, 500, { error: "deployment process could not start" });
+    if (result.code !== 0) return send(response, 502, { accepted: true, completed: true, success: false, ref });
+    return send(response, 200, { accepted: true, completed: true, success: true, ref });
   } catch (error) {
     return send(response, 400, { error: error instanceof Error ? error.message : "invalid request" });
   }
