@@ -9,12 +9,6 @@ function editorArticle(article: typeof articles.$inferSelect) {
   return { ...article, title: article.draftTitle ?? article.title, bodyMarkdown: article.draftBodyMarkdown ?? article.bodyMarkdown };
 }
 
-async function trimAutosaves(articleId: string) {
-  const db = getDb();
-  const autosaves = await db.select({ id: articleVersions.id }).from(articleVersions).where(and(eq(articleVersions.articleId, articleId), eq(articleVersions.kind, "autosave"))).orderBy(desc(articleVersions.version));
-  for (const oldVersion of autosaves.slice(20)) await db.delete(articleVersions).where(eq(articleVersions.id, oldVersion.id));
-}
-
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   if (!await requireArticleEditor(id)) return Response.json({ error: "没有文章编辑权限" }, { status: 403 });
@@ -48,8 +42,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     : { title: source.title, bodyMarkdown: source.bodyMarkdown, status: "draft" as const, draftTitle: null, draftBodyMarkdown: null, deletedAt: null, deletedBy: null };
   const [article] = await db.update(articles).set({ ...update, version: nextVersion, updatedAt: now }).where(and(eq(articles.id, id), eq(articles.version, current.version))).returning();
   if (!article) return Response.json({ error: "检测到内容冲突", currentVersion: current.version }, { status: 409 });
-  await db.insert(articleVersions).values({ id: crypto.randomUUID(), articleId: id, version: nextVersion, title: source.title, bodyMarkdown: source.bodyMarkdown, savedBy: user.id, kind: "autosave", createdAt: now });
-  await trimAutosaves(id);
+  // Restoring changes the working draft, not the snapshot history. Keep the
+  // concurrency counter monotonic so writes based on the old draft still fail.
   await recordAudit(user.id, "restore_version", "article", id, { version: requestedVersion });
   return Response.json({ article: editorArticle(article) });
 }

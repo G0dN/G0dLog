@@ -11,3 +11,8 @@ media
 backups
 *.sqlite
 *.tgz
+outputs
+.env*
+!.env.example
+*-build.log
+*-build.exit

@@ -4,6 +4,12 @@ G0dLog is a small, Chinese-language multi-author blog for one Owner and invited 
 
 The production architecture is a standard Next.js Node.js application with Drizzle ORM and SQLite. The SQLite database and local media directory are mounted from the host; public image derivatives are served by the application, while original uploads require an authenticated Owner or author session.
 
+## Release status
+
+**1.0.0 is the first stable release**, accepted against the project's current functional and NAS deployment criteria. ICP filing has not yet been approved. NAS LAN acceptance is complete; this does not assert that public-domain, HTTPS, or regulatory launch checks have been completed.
+
+See [the complete 1.0.0 release notes](docs/release-1.0.0.md) for the delivered scope, verification evidence, operational limits, and rollback references.
+
 ## Requirements
 
 - Node.js `>=22.13.0`

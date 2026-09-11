@@ -152,6 +152,8 @@ test("SQLite workflow enforces roles, versions, stable URLs and private original
   assert.equal(deleteOtherAuthorDraft.response.status, 200);
   const managedAfterDelete = await api("/api/articles?scope=managed&includeDeleted=1", {}, authorTwoCookie);
   assert.equal((await json(managedAfterDelete.response)).articles.some((item) => item.id === firstArticle.id || item.id === unrelatedArticle.id), false);
+  const activeManagedAfterDelete = await api("/api/articles?scope=managed", {}, authorTwoCookie);
+  assert.equal((await json(activeManagedAfterDelete.response)).articles.some((item) => item.id === firstArticle.id || item.id === unrelatedArticle.id), false);
 
   const deleteCandidateResponse = await api("/api/articles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columnId: column.id, title: "删除前标题", bodyMarkdown: "删除前公开正文", status: "published" }) }, authorOneCookie);
   const deleteCandidate = (await json(deleteCandidateResponse.response)).article;
@@ -191,6 +193,21 @@ test("SQLite workflow enforces roles, versions, stable URLs and private original
   const autosaveHistory = await api(`/api/articles/${autosaveArticle.id}/versions`, {}, ownerCookie);
   const autosaveVersions = (await json(autosaveHistory.response)).versions.filter((version) => version.kind === "autosave");
   assert.equal(autosaveVersions.length, 20);
+  const historyBeforeRestore = (await json((await api(`/api/articles/${autosaveArticle.id}/versions`, {}, ownerCookie)).response)).versions;
+  const beforeRestoreVersion = autosaveArticle.version;
+  for (const snapshot of [autosaveVersions.at(-1), autosaveVersions[0]]) {
+    const rollback = await api(`/api/articles/${autosaveArticle.id}/versions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: snapshot.version, currentVersion: autosaveArticle.version }) }, authorTwoCookie);
+    assert.equal(rollback.response.status, 200);
+    const previousVersion = autosaveArticle.version;
+    autosaveArticle = (await json(rollback.response)).article;
+    assert.equal(autosaveArticle.version, previousVersion + 1);
+    assert.equal(autosaveArticle.bodyMarkdown, snapshot.bodyMarkdown);
+    assert.equal(autosaveArticle.status, "published");
+    const afterRestore = (await json((await api(`/api/articles/${autosaveArticle.id}/versions`, {}, ownerCookie)).response)).versions;
+    assert.deepEqual(afterRestore, historyBeforeRestore, "Restoring must neither create nor trim snapshots");
+  }
+  const staleRestore = await api(`/api/articles/${autosaveArticle.id}/versions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: autosaveVersions[0].version, currentVersion: beforeRestoreVersion }) }, authorTwoCookie);
+  assert.equal(staleRestore.response.status, 409);
   assert.equal((await (await fetch(`${baseUrl}/articles/${encodeURIComponent(autosaveArticle.id)}/${encodeURIComponent(autosaveArticle.slug)}`)).text()).includes("可公开内容"), true);
   assert.equal(autosaveArticle.lastPublishedAt, publishedAt);
   const publicApiArticle = await api(`/api/articles/${encodeURIComponent(autosaveArticle.id)}`);
@@ -274,6 +291,7 @@ test("SQLite workflow enforces roles, versions, stable URLs and private original
 test("core schema, permissions, deployment and editor surfaces are present", async () => {
   const files = {
     page: await readFile(new URL("app/page.tsx", root), "utf8"),
+    studioStyles: await readFile(new URL("app/studio.module.css", root), "utf8"),
     styles: await readFile(new URL("app/globals.css", root), "utf8"),
     schema: await readFile(new URL("db/schema.ts", root), "utf8"),
     compose: await readFile(new URL("docker-compose.yml", root), "utf8"),
@@ -295,7 +313,11 @@ test("core schema, permissions, deployment and editor surfaces are present", asy
     siteConfig: await readFile(new URL("lib/site-config.ts", root), "utf8"),
     package: JSON.parse(await readFile(new URL("package.json", root), "utf8")),
   };
-  for (const label of ["搜索结果", "在本专栏中搜索", "文章目录", "版本历史", "检测到内容冲突", "上传图片", "parseMarkdown", "成员与权限", "协作者", "新建作者"]) assert.match(files.page, new RegExp(label));
+  for (const label of ["搜索结果", "在本专栏中搜索", "文章目录", "版本历史", "检测到内容冲突", "上传图片", "parseMarkdown", "成员与权限", "协作者", "新建作者", "恢复文章", "恢复专栏", "RecoveryManager"]) assert.match(files.page, new RegExp(label));
+  assert.match(files.page, /fetch\("\/api\/columns\?scope=managed"\)/);
+  assert.match(files.page, /fetch\("\/api\/articles\?scope=managed"\)/);
+  assert.match(files.page, /includeDeleted=1/);
+  assert.match(files.studioStyles, /recovery-row/);
   for (const selector of ["@media (max-width: 680px)", ".reader-sidebar.open", ".article-body", ".studio-page"]) assert.match(files.styles, new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   for (const table of ["users", "columns", "columnMembers", "articles", "articleVersions", "media", "slugHistory", "auditLogs"]) assert.match(files.schema, new RegExp(`export const ${table}`));
   for (const label of ["requireColumnManager", "status: \"removed\"", "removedAt", "columnMembers"]) assert.match(files.columnApi, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -332,4 +354,43 @@ test("core schema, permissions, deployment and editor surfaces are present", asy
   assert.doesNotMatch(files.layout, /localhost:3000/);
   assert.doesNotMatch(files.siteConfig, /localhost:3000/);
   assert.match(files.package.scripts.start, /validate-production-config/);
+});
+
+test("moving articles preserves URLs, checks both column permissions and rejects stale versions", async () => {
+  const owner = (await api("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "owner", password: "Strong-Owner9!Pass" }) })).cookie;
+  const send = (path, data, cookie = owner, method = "POST") => api(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }, cookie);
+  const source = (await json((await send("/api/columns", { title: "移动来源" })).response)).column;
+  const target = (await json((await send("/api/columns", { title: "移动目标" })).response)).column;
+  const article = (await json((await send("/api/articles", { columnId: source.id, title: "移动公开文章", bodyMarkdown: "公开正文保留", status: "published" })).response)).article;
+  const tail = (await json((await send("/api/articles", { columnId: target.id, title: "目标末尾" })).response)).article;
+  const account = (await json((await send("/api/admin/users", { username: "move-author", displayName: "移动测试作者", password: "Move-Author9!Pass" })).response)).user;
+  const initialLogin = (await send("/api/auth/login", { username: "move-author", password: "Move-Author9!Pass" })).cookie;
+  const author = (await send("/api/auth/change-password", { currentPassword: "Move-Author9!Pass", newPassword: "Move-Author9!Changed" }, initialLogin)).cookie;
+  await send(`/api/columns/${source.id}/members`, { userId: account.id });
+  const ownedArticle = (await json((await send("/api/articles", { columnId: source.id, title: "协作者自己的文章" }, author)).response)).article;
+  assert.equal((await send(`/api/articles/${ownedArticle.id}/move`, { columnId: target.id, version: ownedArticle.version }, author)).response.status, 403, "collaborator cannot move even own article out");
+  const ownColumn = (await json((await send("/api/columns", { title: "作者管理专栏" }, author)).response)).column;
+  const own = (await json((await send("/api/articles", { columnId: ownColumn.id, title: "作者文章" }, author)).response)).article;
+  assert.equal((await send(`/api/articles/${own.id}/move`, { columnId: target.id, version: own.version }, author)).response.status, 403, "source manager still needs target writing permission");
+  assert.equal((await send(`/api/articles/${article.id}/move`, { columnId: target.id, version: article.version + 1 })).response.status, 409);
+  const movedResponse = await send(`/api/articles/${article.id}/move`, { columnId: target.id, version: article.version });
+  assert.equal(movedResponse.response.status, 200);
+  const moved = (await json(movedResponse.response)).article;
+  assert.equal(moved.columnId, target.id); assert.equal(moved.slug, article.slug); assert.equal(moved.status, "published");
+  assert.equal(moved.version, article.version + 1); assert.ok(moved.sortOrder > tail.sortOrder);
+  assert.equal(moved.bodyMarkdown, "公开正文保留");
+  assert.equal((await fetch(`${baseUrl}/articles/${article.id}/${encodeURIComponent(article.slug)}`)).status, 200);
+  const updatedSource = (await json((await api(`/api/columns/${source.id}?scope=managed`, {}, owner)).response)).column;
+  const updatedTarget = (await json((await api(`/api/columns/${target.id}?scope=managed`, {}, owner)).response)).column;
+  assert.equal(updatedSource.articleCount, 0); assert.equal(updatedSource.latestPublishedAt, null);
+  assert.equal(updatedTarget.articleCount, 1); assert.equal(updatedTarget.latestPublishedAt, article.lastPublishedAt);
+  const staleSave = await send(`/api/articles/${article.id}`, { version: article.version, title: "旧版本" }, owner, "PATCH");
+  assert.equal(staleSave.response.status, 409);
+  await api(`/api/columns/${source.id}`, { method: "DELETE" }, owner);
+  assert.equal((await send(`/api/articles/${article.id}/move`, { columnId: source.id, version: moved.version })).response.status, 404);
+  await api(`/api/articles/${article.id}`, { method: "DELETE" }, owner);
+  const deleted = (await json((await api(`/api/articles/${article.id}`, {}, owner)).response)).article;
+  assert.equal((await send(`/api/articles/${article.id}/move`, { columnId: target.id, version: deleted.version })).response.status, 409);
+  await send(`/api/columns/${target.id}/members`, { userId: account.id });
+  assert.equal((await send(`/api/articles/${own.id}/move`, { columnId: target.id, version: own.version }, author)).response.status, 200, "target collaborator can receive an article from own managed source");
 });

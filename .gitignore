@@ -52,3 +52,6 @@ yarn-error.log*
 /data/
 /media/
 /.media/
+
+# TypeScript incremental build cache
+*.tsbuildinfo

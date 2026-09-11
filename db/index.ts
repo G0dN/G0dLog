@@ -66,3 +66,18 @@ export function getDb(): AppDatabase {
   if (local) return local;
   throw new Error("SQLite 数据库不可用：请确保 Node.js >= 22.13，并检查 BLOG_DATA_DIR");
 }
+
+/** Synchronous callbacks cannot interleave with other requests on this connection. */
+export function withLocalTransaction<T>(action: (database: LocalDatabase) => T): T {
+  getDb();
+  if (!localDatabase) throw new Error("SQLite 数据库不可用");
+  localDatabase.exec("BEGIN IMMEDIATE");
+  try {
+    const result = action(localDatabase);
+    localDatabase.exec("COMMIT");
+    return result;
+  } catch (error) {
+    localDatabase.exec("ROLLBACK");
+    throw error;
+  }
+}

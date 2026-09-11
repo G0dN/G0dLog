@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, isNull, like, ne, or } from "drizzle-orm";
+import { and, asc, max, desc, eq, isNull, like, ne, or } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { articles, columnMembers, columns, users, articleVersions } from "../../../db/schema";
 import { requireUser } from "../../../lib/server-auth";
@@ -66,9 +66,9 @@ export async function POST(request: Request) {
   const id = crypto.randomUUID();
   const title = payload.title?.trim() || "未命名文章";
   const bodyMarkdown = payload.bodyMarkdown ?? "";
-  const [last] = await db.select({ maxSortOrder: count(articles.id) }).from(articles).where(eq(articles.columnId, column.id));
+  const [last] = await db.select({ maxSortOrder: max(articles.sortOrder) }).from(articles).where(eq(articles.columnId, column.id));
   const firstPublishedAt = status === "published" ? now : null;
-  const [article] = await db.insert(articles).values({ id, slug: slugWithId(title, id), columnId: column.id, authorId: user.id, title, bodyMarkdown, status, firstPublishedAt, lastPublishedAt: firstPublishedAt, sortOrder: Number(last?.maxSortOrder ?? 0), createdAt: now, updatedAt: now }).returning();
+  const [article] = await db.insert(articles).values({ id, slug: slugWithId(title, id), columnId: column.id, authorId: user.id, title, bodyMarkdown, status, firstPublishedAt, lastPublishedAt: firstPublishedAt, sortOrder: Number(last?.maxSortOrder ?? -1) + 1, createdAt: now, updatedAt: now }).returning();
   await db.insert(articleVersions).values({ id: crypto.randomUUID(), articleId: id, version: 1, title, bodyMarkdown, savedBy: user.id, kind: status === "published" ? "publish" : "autosave", createdAt: now });
   if (status === "published") await db.update(columns).set({ latestPublishedAt: now, updatedAt: now }).where(eq(columns.id, column.id));
   await recordAudit(user.id, status === "published" ? "publish_article" : "create_article", "article", id);

@@ -7,6 +7,8 @@ services:
       - "${BLOG_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      ALLOW_INSECURE_LAN: ${ALLOW_INSECURE_LAN:-0}
       PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:?PUBLIC_SITE_URL must be set in .env}
       BLOG_DATA_DIR: /var/lib/g0dlog/data
       BLOG_MEDIA_DIR: /var/lib/g0dlog/media

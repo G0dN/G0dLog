@@ -1,6 +1,6 @@
 {
   "name": "g0dlog",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "packageManager": "pnpm@11.19.0",
   "engines": {
@@ -12,7 +12,7 @@
     "postbuild": "node scripts/prepare-standalone.mjs",
     "start": "node scripts/validate-production-config.mjs && node .next/standalone/server.js",
     "test": "pnpm build && node --test tests/rendered-html.test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern outputs",
     "db:generate": "drizzle-kit generate",
     "db:bootstrap-owner": "node scripts/bootstrap-owner.mjs",
     "db:reset-owner-password": "node scripts/reset-owner-password.mjs"
