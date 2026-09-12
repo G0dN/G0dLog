@@ -253,7 +253,7 @@ test("SQLite workflow enforces roles, versions, stable URLs and private original
   const restored = await api(`/api/articles/${publishedArticle.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: deletedArticle.version, action: "restore", status: "published" }) }, ownerCookie);
   assert.equal(restored.response.status, 200);
   const restoredArticle = (await json(restored.response)).article;
-  const richUpdate = await api(`/api/articles/${restoredArticle.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: restoredArticle.version, title: "公式与代码文章", bodyMarkdown: "<script>alert(1)</script>\n\n$ x $\n\n$$\nx^2\n$$\n\n```js\nconst answer = 42\n```", status: "published", saveKind: "publish" }) }, ownerCookie);
+  const richUpdate = await api(`/api/articles/${restoredArticle.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: restoredArticle.version, title: "公式与代码文章", bodyMarkdown: "<script>alert(1)</script>\n\n$ x $\n\n$$\nx^2\n$$\n\n```js\nconst answer = 42\n```\n\n硬换行前  \n硬换行后\n\n普通换行前\n普通换行后\n\n**粗体前  \n粗体后**\n\n> 引用前  \n> 引用后", status: "published", saveKind: "publish" }) }, ownerCookie);
   assert.equal(richUpdate.response.status, 200);
   const richArticle = (await json(richUpdate.response)).article;
   const richHtml = await fetch(`${baseUrl}/articles/${encodeURIComponent(richArticle.id)}/${encodeURIComponent(richArticle.slug)}`);
@@ -261,6 +261,10 @@ test("SQLite workflow enforces roles, versions, stable URLs and private original
   assert.doesNotMatch(richText, /<script>alert\(1\)<\/script>/);
   assert.match(richText, /katex/);
   assert.match(richText, /hljs-keyword/);
+  assert.match(richText, /硬换行前<\/span><br\s*\/?>\s*<span>硬换行后/);
+  assert.match(richText, /普通换行前\n普通换行后/);
+  assert.match(richText, /<strong><span>粗体前<\/span><br\s*\/?>\s*<span>粗体后<\/span><\/strong>/);
+  assert.match(richText, /引用前<\/span><br\s*\/?>\s*<span>引用后/);
   const conflict = await api(`/api/articles/${richArticle.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: restoredArticle.version, title: "并发冲突" }) }, ownerCookie);
   assert.equal(conflict.response.status, 409);
   const renamed = await api(`/api/articles/${richArticle.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: richArticle.version, title: "稳定地址文章", bodyMarkdown: richArticle.bodyMarkdown, status: "published", saveKind: "publish" }) }, ownerCookie);

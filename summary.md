@@ -6,6 +6,8 @@ This is a handoff map for future agents. The confirmed product baseline is `dema
 
 ## Runtime
 
+The independent Sites MVP checkout is `work/sites-mvp/` (ignored by this repository and maintained as its own Git repository). Its `.openai/hosting.json` owns the Site identity; its own `summary.md` documents the Vinext/D1/R2 adapter. It has independent accounts and storage and is not the NAS core. `docs/mainland-launch.zh-CN.md` records the mainland launch process and unresolved operator/domain requirements.
+
 - Next.js `16.2.11` App Router, React 19, TypeScript, Drizzle ORM, and Node.js `node:sqlite`.
 - `sharp` is pinned to `0.35.4`; the workspace overrides Next's transitive `sharp` and `postcss` resolutions to audited patched versions.
 - Standalone preparation explicitly copies installed Sharp native packages because Next tracing omitted the versioned libvips shared library on Alpine during NAS acceptance. The final Docker image now generates both WebP and AVIF during its build to catch missing runtime libraries before deployment.
@@ -94,9 +96,8 @@ The test suite creates a temporary SQLite database, boots the production Next se
 
 ## Current NAS release
 
-- Current image: `g0dlog:20260911-public-reading`, image ID `sha256:d3df91ca7c981f881aa7a98a046f6ab1a791cd33cccdf1a219b19abaf013fb38f`, container `g0dlog` healthy. Release directory: `/srv/g0dlog/releases/20260911-public-reading`.
-- Storage mounts are unchanged; backup: `storage/backups/g0dlog-20260911T132820Z`. Stopped rollback container: `g0dlog-rollback-public-reading-20260911`, automatic restart disabled; previous image: `g0dlog:20260911-autosave`.
-- `docs/public-reading-release-20260911.md` records validation and rollback. Existing 24 articles and 28 columns passed exact post-deployment comparison.
+- Current image: `g0dlog:1.0.1`, container `g0dlog` healthy. Storage mounts are unchanged; the previous image is `g0dlog:20260911-public-reading`, retained in stopped container `g0dlog-rollback-v1.0.1-20260912` with automatic restart disabled.
+- `docs/release-v1.0.1.md` records the release behavior and validation; private deployment paths and backup details remain in ignored local release records.
 
 ## Recovery review follow-up
 

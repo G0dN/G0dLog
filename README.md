@@ -56,6 +56,7 @@ Both commands enforce the password policy and invalidate existing sessions when 
 - Stable public URLs use an immutable resource ID plus a readable slug. Older slugs are recorded and redirected to the canonical URL.
 - `/studio` provides Owner and author login, column/member management, Markdown source plus preview editing, autosave, local draft recovery, version history, publishing, soft deletion, restore, and profile/password management.
 - Markdown rendering is allowlisted: raw HTML is rendered as text, resource URLs are restricted, fenced code uses the bundled highlight.js grammar, formulas use the bundled KaTeX CSS/runtime, images are magic-byte checked on upload, metadata is stripped, and non-GIF uploads receive WebP and AVIF display derivatives.
+- End a line with two spaces before Enter for a Markdown hard break. In the source editor, Ctrl/Cmd+B wraps the selection in bold markers and Ctrl/Cmd+* (Ctrl/Cmd+Shift+8 on the main keyboard) adds italic markers; without a selection, the caret stays between the inserted markers.
 - Public output includes `/rss.xml`, `/sitemap.xml`, `/robots.txt`, canonical metadata, and Open Graph metadata.
 
 The first version intentionally does not include comments, likes, follows, public registration, private content, mail password recovery, two-factor authentication, generic attachments, Mermaid, analytics, or a second external database/object store.
